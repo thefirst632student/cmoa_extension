@@ -1,4 +1,5 @@
 import json, math
+from PIL import Image
 
 def to_int32(n):
     return n & 0xFFFFFFFF
@@ -180,24 +181,86 @@ def generate_k_param(cid: str) -> tuple[str, str]:
     # 返回生成的 k 参数和我们使用的随机串 n
     return k_param, n
 
+def ptimg_descrambling(ptimg_json: dict | str, images: dict[str, Image.Image]) -> Image.Image:
+    '''
+    适用于采用ptimg.json方式获取混淆分片数据的网站
+    根据ptimg.json对图像去混淆
+
+    :param ptimg_json: *.ptimg.json，完成了JSON解析的词典/原始JSON字符串
+    :param images: 对应的{"文件名": Pillow Image}
+    :return: [Pillow Image, ...]
+    '''
+    if isinstance(ptimg_json, str):
+        ptimg_json: dict = json.loads(ptimg_json)
+
+    recover_imgs: list[Image.Image] = []
+    for view in ptimg_json['views']:
+        recover_img = Image.new(next(iter(images.values())).mode, (view['width'], view['height']))
+        # i:4,4+142,202>568,404
+        for coord in view['coords']:
+            resource, coord = coord.split(':')
+
+            src, coord = coord.split('+')
+            xsrc, ysrc = src.split(',')
+
+            size, dest = coord.split('>')
+            width, height = size.split(',')
+            xdest, ydest = dest.split(',')
+
+            try:
+                source_box = (
+                    int(xsrc), int(ysrc),
+                    int(xsrc) + int(width), 
+                    int(ysrc) + int(height)
+                )
+                cropped_block = images[ptimg_json['resources'][resource]['src']].crop(source_box)
+
+                recover_img.paste(cropped_block, (int(xdest), int(ydest)))
+            except Exception as e:
+                print(f"Pillow Paste/Crop Error for block: {coord}. Error: {e}")
+
+        recover_imgs.append(recover_img)
+
+    return recover_imgs
+
 if __name__ == "__main__":
-    CID_EXAMPLE = "06A0000000000263550B"
-
-    k_result, n_used = generate_k_param(CID_EXAMPLE)
-
     import httpx, datetime, hashlib, io
     from rich.console import Console
     from bs4 import BeautifulSoup as bs
-    from . import scrambler
-    from PIL import Image
-
-    console = Console()
 
     client = httpx.Client(
         headers={
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:135.0) Gecko/20100101 Firefox/135.0"
         }
     )
+
+    # EXAMPLE OF kirapo.jp, simple ptimg descrambing
+    KIRAPO_EXAMPLE_URL = "https://kirapo.jp/pt/meteor/mahogal/2021385/"
+
+    if not KIRAPO_EXAMPLE_URL.endswith('/'): KIRAPO_EXAMPLE_URL += '/'
+    html = client.get(KIRAPO_EXAMPLE_URL + 'viewer')
+
+    soup = bs(html, "html.parser")
+    content = soup.find('div', {'id': 'content'})
+    for pt in content.find_all('div'):
+        # This URL join method is only for example
+        # You should use better methods for product environment
+        ptpath = KIRAPO_EXAMPLE_URL + pt['data-ptimg']
+        ptjson = client.get(ptpath).json()
+        images = {
+            r['src']: Image.open(client.get('/'.join(ptpath.split('/')[:-1]) + '/' + r['src']))
+            for r in ptjson['resources'].values()
+        }
+        recover_imgs: list[Image.Image] = ptimg_descrambling(ptjson, images)
+
+    # EXAMPLE OF yanmaga.jp, complex bibGetCntntInfo stbl/ttbl/ptbl/ctbl descrambing
+    CID_EXAMPLE = "06A0000000000263550B"
+
+    k_result, n_used = generate_k_param(CID_EXAMPLE)
+
+    from . import scrambler
+
+    console = Console()
 
     res = client.get(
         "https://yanmaga.jp/viewer/bibGetCntntInfo",
