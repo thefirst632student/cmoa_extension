@@ -1,0 +1,40 @@
+{
+  "manifest_version": 3,
+  "name": "CMOA Downloader",
+  "version": "1.0",
+  "permissions": [
+    "downloads",
+    "storage",
+    "webRequest",
+    "offscreen"
+  ],
+  "host_permissions": [
+    "*://www.cmoa.jp/*",
+    "*://*.akamaized.net/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://www.cmoa.jp/bib/speedreader/*", "*://www.cmoa.jp/bib/speedbinb/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://www.cmoa.jp/bib/speedreader/*", "*://www.cmoa.jp/bib/speedbinb/*"],
+      "js": ["inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["core.js"],
+      "matches": ["*://www.cmoa.jp/*"]
+    }
+  ]
+}
